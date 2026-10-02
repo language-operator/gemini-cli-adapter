@@ -12,7 +12,7 @@ This repo was created from the [`opencode-adapter`](https://github.com/language-
 
 > **Status:** renamed, not yet wired up. The image installs Gemini CLI and passes the
 > runtime contract, but the emitter does not yet translate the operator's config
-> (gateway, MCP servers, instructions) — that is
+> (gateway, MCP servers, instructions), so the TUI opens on its API-key prompt — that is
 > [#1](https://github.com/language-operator/gemini-cli-adapter/issues/1).
 
 ## Architecture
@@ -26,8 +26,9 @@ config. What lives here is the three files that describe Gemini CLI to it:
 - **`runtime.json`** — the manifest: where state goes (`GEMINI_CLI_HOME`, under
   `$STATE_DIR/gemini`, so the CLI never writes to the read-only root), the serving
   surface, and how tmux launches the TUI.
-- **`emit.mjs`** — the emitter: normalized config → Gemini CLI config. A placeholder
-  that writes nothing until #1.
+- **`emit.mjs`** — the emitter: normalized config → Gemini CLI's `settings.json`. For
+  now it only turns off the folder-trust dialog and fixes auth to API key (never Google
+  OAuth, which would bypass the gateway); the rest is #1.
 - **`launch-gemini-cli.sh`** — what tmux runs. The base has already set the working
   directory (the cloned repo when the agent sets `spec.repository`, else
   `/workspace`), so it opens that project directly.

@@ -23,7 +23,7 @@ RUN npm install -g --no-audit --no-fund "@google/gemini-cli@${GEMINI_CLI_VERSION
     && npm cache clean --force
 
 # runtime.json  — what this adapter is: config dir, serving surface, tmux launch.
-# emit.mjs      — normalized operator config -> Gemini CLI config (#1).
+# emit.mjs      — normalized operator config -> Gemini CLI settings.json.
 # launch-gemini-cli — what tmux runs inside the terminal.
 COPY runtime.json /etc/coding-runtime/runtime.json
 COPY emit.mjs /opt/adapter/emit.mjs

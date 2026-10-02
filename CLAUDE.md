@@ -30,8 +30,10 @@ it.
   otherwise writes under `~/.gemini` and crashes on the read-only root), the serving
   surface, how tmux launches the TUI. Owned here — `coding-runtime` has no Gemini CLI
   example to copy from.
-- `emit.mjs` — the emitter: normalized config → Gemini CLI config. Currently a placeholder
-  that writes nothing; the real translation (gateway, MCP servers, `GEMINI.md`) is #1.
+- `emit.mjs` — the emitter: normalized config → `$GEMINI_CLI_HOME/.gemini/settings.json`.
+  So far it owns only `security.folderTrust.enabled` (false — the trust dialog swallows
+  keystrokes and fails conformance) and `security.auth.selectedType` (`gemini-api-key`,
+  never Google OAuth). The real translation (gateway, MCP servers, `GEMINI.md`) is #1.
 - `launch-gemini-cli.sh` — what tmux runs: `exec gemini` in the project directory.
 - `chart/` — the Helm chart registering the cluster-scoped `LanguageAgentRuntime` named
   `gemini-cli`.
