@@ -1,114 +1,35 @@
 /**
- * opencode emitter.
+ * Gemini CLI emitter.
  *
- * opencode.jsonc is operator-managed in full — unlike Claude Code's files it
- * holds no user state — so every key here is owned and a dropped model or tool
- * disappears from the file on the next seed.
+ * Gemini CLI reads its user settings from $GEMINI_CLI_HOME/.gemini/settings.json,
+ * and runtime.json points GEMINI_CLI_HOME at ${STATE_DIR}/gemini. That file also
+ * holds the user's own choices (theme, editor, ...), so only the exact paths
+ * below are owned, never the `security` object as a whole.
  *
- * Every model is registered under the single `openai` provider key regardless
- * of what the LanguageModel resources are named: the cluster gateway is
- * OpenAI-compatible and aggregates all of them behind one endpoint, so the
- * qualified id an agent selects is always `openai/<model id>`.
+ * For now this only gets the TUI past the two dialogs that would otherwise stand
+ * between the terminal and the prompt. Translating the operator's config —
+ * the gateway (GEMINI_API_KEY / GOOGLE_GEMINI_BASE_URL), `mcpServers`, and
+ * standing instructions as GEMINI.md — is the runtime bootstrap, issue #1.
  */
 
-/**
- * opencode's remote MCP default is 5000 ms to fetch a server's tools, too short
- * for an external server that may sit behind a control plane and wait on a
- * reconcile; header-bearing (external) entries get this instead.
- */
-const EXTERNAL_TIMEOUT_MS = 30000;
+export function emit(config) {
+  const configDir = `${config.paths.stateDir}/gemini/.gemini`;
 
-/**
- * The gateway credential, as opencode should see it.
- *
- * When the operator issued a per-agent key, write opencode's own environment
- * reference rather than the value: opencode.jsonc lives on the workspace
- * volume, so resolving here would put the credential on disk for no gain.
- * Without a key, or on a base too old to render references, fall back to the
- * shared placeholder — the behaviour before per-agent keys existed.
- *
- * Note this falls back where `mcpServer` below throws. A header-bearing server
- * configured without its header fails unexplained, so refusing to seed is the
- * only honest signal; a missing gateway key costs attribution and nothing else,
- * and failing the boot over it would make an optional feature a hard dependency
- * on the base version.
- */
-function gatewayKey(config, renderRef) {
-  if (!config.gateway.apiKeyRef || !renderRef) return config.gateway.apiKey;
-  return renderRef(config.gateway.apiKeyRef, {
-    path: 'gateway.apiKey',
-    rewrite: (name) => `{env:${name}}`,
-    clientSyntax: /\{(env|file):/,
-  }) ?? config.gateway.apiKey;
-}
-
-export function emit(config, { renderHeaders = null, renderRef = null } = {}) {
-  const configDir = config.paths.stateDir ? `${config.paths.stateDir}/opencode` : '/etc/opencode';
-
-  // An external server's headers go in as `{env:NAME}`, opencode's own
-  // environment reference, so the token is never written into opencode.jsonc.
-  // Rendering is all-or-nothing: a server whose headers cannot all be rendered
-  // is left out (the helper warns), never configured without auth to 401
-  // unexplained. `oauth: false` because opencode otherwise auto-detects OAuth
-  // on a remote server and could send a headless agent into a browser flow it
-  // cannot complete, even with a correct bearer header. A base runtime without
-  // the helper cannot honour headers at all; failing the seed says so.
-  const mcpServer = (tool) => {
-    if (!tool.headers) return { type: 'remote', url: tool.endpoint };
-    if (!renderHeaders) {
-      throw new Error(`tool '${tool.name}' has headers, which need coding-runtime's ctx.renderHeaders; rebuild on a base that provides it`);
-    }
-    const headers = renderHeaders(tool.headers, {
-      path: `tools.${tool.name}`,
-      rewrite: (name) => `{env:${name}}`,
-      clientSyntax: /\{(env|file):/,
-    });
-    return headers ? { type: 'remote', url: tool.endpoint, headers, oauth: false, timeout: EXTERNAL_TIMEOUT_MS } : null;
-  };
-  const writes = [];
-  const values = { autoupdate: false };
-  const owns = ['autoupdate', 'provider', 'model', 'mcp', 'instructions'];
-
-  // Every owned key below is supplied on every run, null included. opencode.jsonc
-  // holds no user state, so the runtime can state its whole intent each time —
-  // and an explicit null removes a key regardless of provenance, which is what
-  // keeps a withdrawn model or tool from lingering after a base upgrade that
-  // has no record of ever writing it.
-  values.provider = null;
-  values.model = null;
-  values.mcp = null;
-  values.instructions = null;
-
-  if (config.gateway) {
-    values.provider = {
-      openai: {
-        options: { baseURL: config.gateway.openaiBaseUrl, apiKey: gatewayKey(config, renderRef) },
-        models: Object.fromEntries(config.models.ordered.map((m) => [m.id, {}])),
+  return [
+    {
+      path: `${configDir}/settings.json`,
+      owns: ['security.folderTrust.enabled', 'security.auth.selectedType'],
+      values: {
+        // The workspace is the one the operator provisioned for this agent, so
+        // there is nobody to ask whether to trust it; the trust dialog would only
+        // block the terminal.
+        'security.folderTrust.enabled': false,
+        // API-key auth only, so the TUI never offers "Sign in with Google": an
+        // OAuth login would go around the cluster's model gateway.
+        'security.auth.selectedType': 'gemini-api-key',
       },
-    };
-  }
-
-  if (config.models.primary) {
-    values.model = `openai/${config.models.primary.id}`;
-  }
-
-  const mcpServers = config.tools.map((tool) => [tool.name, mcpServer(tool)]).filter(([, server]) => server);
-  if (mcpServers.length > 0) {
-    values.mcp = Object.fromEntries(mcpServers);
-  }
-
-  // Instructions and persona become standing context rather than a first
-  // message, so the TUI opens with the agent already briefed — no timing
-  // dependence on when the user first types.
-  const standing = [config.systemPrompt, config.instructions].filter(Boolean).join('\n\n');
-  if (standing) {
-    const file = `${configDir}/instructions.md`;
-    writes.push({ path: file, contents: `${standing}\n` });
-    values.instructions = [file];
-  }
-
-  writes.push({ path: `${configDir}/opencode.jsonc`, values, owns });
-  return writes;
+    },
+  ];
 }
 
 export default emit;

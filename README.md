@@ -1,41 +1,42 @@
-# opencode-adapter
+# gemini-cli-adapter
 
-The **opencode** runtime for the [Language Operator](https://github.com/language-operator/language-operator),
+The **Gemini CLI** runtime for the [Language Operator](https://github.com/language-operator/language-operator),
 running as a native Kubernetes workload.
 
-It builds the runtime image and the Helm chart that registers the `opencode`
-`LanguageAgentRuntime`. The opencode TUI runs inside tmux and is fronted by an
+It builds the runtime image and the Helm chart that registers the `gemini-cli`
+`LanguageAgentRuntime`. The Gemini CLI TUI runs inside tmux and is fronted by an
 xterm.js / WebSocket terminal in the browser, so working with the agent feels like
 a real terminal session.
+
+This repo was created from the [`opencode-adapter`](https://github.com/language-operator/opencode-adapter) template.
+
+> **Status:** renamed, not yet wired up. The image installs Gemini CLI and passes the
+> runtime contract, but the emitter does not yet translate the operator's config
+> (gateway, MCP servers, instructions), so the TUI opens on its API-key prompt — that is
+> [#1](https://github.com/language-operator/gemini-cli-adapter/issues/1).
 
 ## Architecture
 
 The image is [`coding-runtime`](https://github.com/language-operator/coding-runtime)
-plus the opencode CLI. The base owns the OS layer, the web terminal (xterm.js over
+plus Gemini CLI. The base owns the OS layer, the web terminal (xterm.js over
 a node-pty WebSocket bridge, with a cross-origin guard and a 25s keepalive), `tini`,
 and the ETL that turns the operator's `/etc/agent/config.yaml` into a normalized
-config. What lives here is the three files that describe opencode to it:
+config. What lives here is the three files that describe Gemini CLI to it:
 
-- **`runtime.json`** — the manifest: where config goes (`$STATE_DIR/opencode`),
-  the serving surface, and how tmux launches the TUI.
-- **`emit.mjs`** — the emitter: normalized config → `opencode.jsonc` (provider,
-  model, MCP servers). Agent **instructions** are written to `instructions.md` and
-  referenced from opencode's `instructions` field, so they load as standing context
-  for every session — no async seeding, no timing.
-- **`launch-opencode.sh`** — what tmux runs. The base has already set the working
+- **`runtime.json`** — the manifest: where state goes (`GEMINI_CLI_HOME`, under
+  `$STATE_DIR/gemini`, so the CLI never writes to the read-only root), the serving
+  surface, and how tmux launches the TUI.
+- **`emit.mjs`** — the emitter: normalized config → Gemini CLI's `settings.json`. For
+  now it only turns off the folder-trust dialog and fixes auth to API key (never Google
+  OAuth, which would bypass the gateway); the rest is #1.
+- **`launch-gemini-cli.sh`** — what tmux runs. The base has already set the working
   directory (the cloned repo when the agent sets `spec.repository`, else
-  `/workspace`), so it opens that project directly. It also passes `--continue` once
-  the workspace holds a session store, so an agent that is put to sleep and woken —
-  a new pod, and with it a new tmux server — resumes the conversation rather than
-  opening blank.
+  `/workspace`), so it opens that project directly.
 
 One container, running the base entrypoint: resolve the environment, seed config,
 serve. Seeding runs in the agent container rather than an init container because
 the operator mounts `/tmp` there only, so the two would share no writable path.
 tmux keeps the session alive across browser reconnects.
-
-The sibling [`claude-code-adapter`](https://github.com/language-operator/claude-code-adapter)
-is the same shape on the same base, swapping the CLI and the three files.
 
 ## Install
 
@@ -43,7 +44,7 @@ Prerequisite: the [`language-operator`](https://github.com/language-operator/lan
 chart must be installed first — it provides the `LanguageAgentRuntime` CRD.
 
 ```bash
-helm install opencode oci://ghcr.io/language-operator/charts/opencode \
+helm install gemini-cli oci://ghcr.io/language-operator/charts/gemini-cli \
   --namespace language-operator
 ```
 
@@ -55,7 +56,7 @@ kind: LanguageAgent
 metadata:
   name: my-agent
 spec:
-  runtime: opencode
+  runtime: gemini-cli
 ```
 
 ## Authentication
@@ -64,19 +65,19 @@ The runtime sets `auth.enabled: true`, so access is gated entirely by the cluste
 OIDC proxy: when the `LanguageCluster` has auth enabled the operator injects an
 oauth2-proxy sidecar in front of the terminal. There is no built-in password — if
 the cluster does not enable auth, the terminal is exposed unauthenticated on its
-ingress. opencode itself reaches the model gateway via the provider config in
-`opencode.jsonc`; no interactive login is needed.
+ingress. Gemini CLI reaches the model gateway through config written at startup,
+never an interactive OAuth login, which would bypass the gateway.
 
 ## Development
 
 ```bash
-make build      # docker build -t ghcr.io/language-operator/opencode-adapter:latest .
+make build      # docker build -t ghcr.io/language-operator/gemini-cli-adapter:latest .
 make test       # build, then run the coding-runtime conformance suite
 make publish    # build and push the image to ghcr.io
 make dev        # build, import into k3s, and upgrade the runtime release (inner loop)
 
 helm lint chart
-helm template opencode chart
+helm template gemini-cli chart
 ```
 
 ## CI
